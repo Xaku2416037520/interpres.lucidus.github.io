@@ -305,7 +305,9 @@ const loadData = async () => {
             localforage.getItem(getStorageKey('showPartnerNameInChat')),
             localforage.getItem(`${APP_PREFIX}themeSchemes`),
             localforage.getItem(getStorageKey('myStickerLibrary')),
-            localforage.getItem(getStorageKey('customReplyGroups'))
+            localforage.getItem(getStorageKey('customReplyGroups')),
+            localforage.getItem(getStorageKey('customPokeGroups')),
+            localforage.getItem(getStorageKey('customStatusGroups'))
         ]);
         const getVal = (index) => results[index].status === 'fulfilled' ? results[index].value : null;
 
@@ -328,6 +330,8 @@ const loadData = async () => {
         const savedThemeSchemes = getVal(16);
         const savedMyStickers = getVal(17);
         const savedReplyGroups = getVal(18);
+        const savedPokeGroups = getVal(19);
+        const savedStatusGroups = getVal(20);
 
         if (savedPartnerPersonas) partnerPersonas = savedPartnerPersonas;
 
@@ -391,6 +395,8 @@ const loadData = async () => {
 
         if (savedCustomReplies) customReplies = savedCustomReplies;
         if (savedReplyGroups) window.customReplyGroups = savedReplyGroups;
+        if (savedPokeGroups) window.customPokeGroups = savedPokeGroups;
+        if (savedStatusGroups) window.customStatusGroups = savedStatusGroups;
         if (savedAnniversaries) anniversaries = savedAnniversaries;
         if (savedStickers) stickerLibrary = savedStickers;
         if (savedMyStickers) myStickerLibrary = savedMyStickers;
@@ -563,6 +569,8 @@ const saveData = async () => {
         { key: 'chatSettings',           val: () => localforage.setItem(getStorageKey('chatSettings'), settings) },
         { key: 'customReplies',          val: () => localforage.setItem(getStorageKey('customReplies'), customReplies) },
         { key: 'customReplyGroups',      val: () => localforage.setItem(getStorageKey('customReplyGroups'), window.customReplyGroups || []) },
+        { key: 'customPokeGroups',        val: () => localforage.setItem(getStorageKey('customPokeGroups'), window.customPokeGroups || []) },
+        { key: 'customStatusGroups',      val: () => localforage.setItem(getStorageKey('customStatusGroups'), window.customStatusGroups || []) },
         { key: 'customEmojis',           val: () => localforage.setItem(getStorageKey('customEmojis'), customEmojis) },
         { key: 'anniversaries',          val: () => localforage.setItem(getStorageKey('anniversaries'), anniversaries) },
         { key: 'customPokes',            val: () => localforage.setItem(getStorageKey('customPokes'), customPokes) },
@@ -1323,10 +1331,79 @@ const addMessage = (message) => {
         };
         function updateReplyPreview() { window.updateReplyPreview(); }
 
+        // ── 对方拍一拍核心逻辑（提取为独立函数，供随机触发和测试指令共用）──
+        window._triggerPartnerPoke = function() {
+            let pokeAction = null;
+
+            const groups = window.customPokeGroups || [];
+            const allPokes = (typeof customPokes !== 'undefined' ? customPokes : []) || [];
+
+            const enabledGroups = groups.filter(function(g) {
+                return !g.disabled && Array.isArray(g.items) && g.items.length > 0;
+            });
+
+            const groupedItems = new Set();
+            enabledGroups.forEach(function(g) { g.items.forEach(function(t) { groupedItems.add(t); }); });
+
+            const ungroupedPokes = allPokes.filter(function(t) { return !groupedItems.has(t); });
+
+            if (enabledGroups.length > 0) {
+                const pickedGroup = enabledGroups[Math.floor(Math.random() * enabledGroups.length)];
+                const groupPool = pickedGroup.items.filter(function(t) { return allPokes.includes(t); });
+                if (groupPool.length > 0) {
+                    pokeAction = groupPool[Math.floor(Math.random() * groupPool.length)];
+                }
+            }
+
+            if (!pokeAction && ungroupedPokes.length > 0) {
+                pokeAction = ungroupedPokes[Math.floor(Math.random() * ungroupedPokes.length)];
+            }
+            if (!pokeAction && allPokes.length > 0) {
+                pokeAction = allPokes[Math.floor(Math.random() * allPokes.length)];
+            }
+            if (!pokeAction && CONSTANTS.POKE_ACTIONS && CONSTANTS.POKE_ACTIONS.length > 0) {
+                pokeAction = getRandomItem(CONSTANTS.POKE_ACTIONS);
+            }
+            if (!pokeAction) {
+                if (typeof showNotification === 'function') showNotification('拍一拍库为空，请先添加内容', 'warning', 2500);
+                return;
+            }
+
+            if (typeof window._sanitizePokeTextForDisplay === 'function') {
+                pokeAction = window._sanitizePokeTextForDisplay(pokeAction);
+            }
+            const pokeText = (typeof window._formatPartnerPokeText === 'function')
+                ? window._formatPartnerPokeText(`${settings.partnerName} ${pokeAction}`)
+                : `${settings.partnerName} ${pokeAction}`;
+
+            addMessage({ id: Date.now(), text: pokeText, timestamp: new Date(), type: 'system' });
+            if (typeof playSound === 'function') playSound('partner_poke');
+            (function(){try{if(window._typingIndicatorAutoHideTimer){clearTimeout(window._typingIndicatorAutoHideTimer);window._typingIndicatorAutoHideTimer=null;}}catch(e){}var _tiW=document.getElementById('typing-indicator-wrapper');if(_tiW){var _tiInner=_tiW.querySelector('.typing-indicator');if(_tiInner){_tiInner.classList.add('hiding');setTimeout(function(){_tiW.style.display='none';if(_tiInner)_tiInner.classList.remove('hiding');},240);}else{_tiW.style.display='none';}}})();
+        };
+
         function sendMessage(textOverride = null, type = 'normal') {
             const text = textOverride || DOMElements.messageInput.value.trim();
             const imageFile = DOMElements.imageInput.files[0];
             if (!text && !imageFile && type === 'normal') return;
+
+            // ── 斜杠指令拦截 ──
+            if (text && text.startsWith('/') && type === 'normal') {
+                const cmd = text.replace(/\s+/g, '').toLowerCase();
+                if (cmd === '/测试拍一拍' || cmd === '/testpoke') {
+                    DOMElements.messageInput.value = '';
+                    DOMElements.messageInput.style.height = '46px';
+                    if (typeof window._triggerPartnerPoke === 'function') window._triggerPartnerPoke();
+                    if (typeof showNotification === 'function') showNotification('✦ 强制触发对方拍一拍', 'info', 1800);
+                    return;
+                }
+                if (cmd === '/测试状态更新' || cmd === '/teststatus') {
+                    DOMElements.messageInput.value = '';
+                    DOMElements.messageInput.style.height = '46px';
+                    if (typeof window._triggerStatusChange === 'function') window._triggerStatusChange();
+                    if (typeof showNotification === 'function') showNotification('✦ 强制触发状态更新', 'info', 1800);
+                    return;
+                }
+            }
 
             DOMElements.messageInput.value = '';
             DOMElements.messageInput.style.height = '46px';
@@ -1562,27 +1639,10 @@ if (partnerPersonas && partnerPersonas.length > 0 && Math.random() < 0.3) {
                 }
             }
             if (Math.random() < 0.03) {
-                // 对方的“拍一拍”只使用内置动作，不读取我方自定义拍一拍库
-                if (CONSTANTS.POKE_ACTIONS && CONSTANTS.POKE_ACTIONS.length > 0) {
-                    let randomAction = getRandomItem(CONSTANTS.POKE_ACTIONS);
-                    if (typeof window._sanitizePokeTextForDisplay === 'function') {
-                        randomAction = window._sanitizePokeTextForDisplay(randomAction);
-                    }
-                    const pokeText = (typeof window._formatPartnerPokeText === 'function')
-                        ? window._formatPartnerPokeText(`${settings.partnerName} ${randomAction}`)
-                        : `${settings.partnerName} ${randomAction}`;
-
-                    addMessage({
-                        id: Date.now(),
-                        text: pokeText,
-                        timestamp: new Date(),
-                        type: 'system'
-                    });
-                    if (typeof playSound === 'function') playSound('partner_poke');
-                (function(){try{if(window._typingIndicatorAutoHideTimer){clearTimeout(window._typingIndicatorAutoHideTimer);window._typingIndicatorAutoHideTimer=null;}}catch(e){}var _tiW=document.getElementById('typing-indicator-wrapper');if(_tiW){var _tiInner=_tiW.querySelector('.typing-indicator');if(_tiInner){_tiInner.classList.add('hiding');setTimeout(function(){_tiW.style.display='none';if(_tiInner)_tiInner.classList.remove('hiding');},240);}else{_tiW.style.display='none';}}})();
-        return;
-    }
-}
+                // ── 对方拍一拍：调用提取的通用函数（同时供 /测试拍一拍 指令使用）──
+                if (typeof window._triggerPartnerPoke === 'function') window._triggerPartnerPoke();
+                return;
+            }
 
             const replyCount = Math.random() < 0.75 ? 1: (Math.random() < 0.95 ? 2: 3);
             if (!customReplies || customReplies.length === 0) {
@@ -2128,15 +2188,59 @@ function showModal(modalElement, focusElement = null) {
             reader.readAsText(file);
         }
 
+        // ── 对方状态更新核心逻辑（提取为独立函数，供定时触发和 /测试状态更新 指令共用）──
+        window._triggerStatusChange = function() {
+            let newStatus = null;
+
+            const groups = window.customStatusGroups || [];
+            const allStatuses = (typeof customStatuses !== 'undefined' ? customStatuses : []) || [];
+
+            // 只保留「启用」且「有内容」的分组，内容必须也在 allStatuses 里存在
+            const enabledGroups = groups.filter(function(g) {
+                return !g.disabled && Array.isArray(g.items) && g.items.length > 0;
+            });
+
+            // 收集所有在分组内的状态文本
+            const groupedItems = new Set();
+            enabledGroups.forEach(function(g) { g.items.forEach(function(t) { groupedItems.add(t); }); });
+
+            // 未分组的状态
+            const ungroupedStatuses = allStatuses.filter(function(t) { return !groupedItems.has(t); });
+
+            if (enabledGroups.length > 0) {
+                // 有启用分组时：随机选一个分组 → 从该分组随机选一条状态
+                const pickedGroup = enabledGroups[Math.floor(Math.random() * enabledGroups.length)];
+                const groupPool = pickedGroup.items.filter(function(t) { return allStatuses.includes(t); });
+                if (groupPool.length > 0) {
+                    newStatus = groupPool[Math.floor(Math.random() * groupPool.length)];
+                }
+            }
+
+            // 分组里没找到内容时，退回到：未分组状态 → 全部 customStatuses → 内置 PARTNER_STATUSES
+            if (!newStatus && ungroupedStatuses.length > 0) {
+                newStatus = ungroupedStatuses[Math.floor(Math.random() * ungroupedStatuses.length)];
+            }
+            if (!newStatus && allStatuses.length > 0) {
+                newStatus = allStatuses[Math.floor(Math.random() * allStatuses.length)];
+            }
+            if (!newStatus && CONSTANTS.PARTNER_STATUSES && CONSTANTS.PARTNER_STATUSES.length > 0) {
+                newStatus = getRandomItem(CONSTANTS.PARTNER_STATUSES);
+            }
+            if (!newStatus) {
+                if (typeof showNotification === 'function') showNotification('状态库为空，请先添加内容', 'warning', 2500);
+                return;
+            }
+
+            settings.partnerStatus = newStatus;
+            settings.lastStatusChange = Date.now();
+            settings.nextStatusChange = 1 + Math.random() * 7;
+            DOMElements.partner.status.textContent = newStatus;
+            throttledSaveData();
+        };
+
         const checkStatusChange = () => {
             if ((Date.now() - settings.lastStatusChange) / 36e5 >= settings.nextStatusChange) {
-if (customStatuses && customStatuses.length > 0) {
-    settings.partnerStatus = getRandomItem(customStatuses);
-}
-                settings.lastStatusChange = Date.now();
-                settings.nextStatusChange = 1 + Math.random() * 7;
-                DOMElements.partner.status.textContent = settings.partnerStatus;
-                throttledSaveData();
+                window._triggerStatusChange();
             }
         };
 
