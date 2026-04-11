@@ -1,5 +1,22 @@
 if (typeof customReplyGroups === 'undefined') window.customReplyGroups = [];
 if (typeof replyGroupsEnabled === 'undefined') window.replyGroupsEnabled = false;
+if (typeof customPokeGroups === 'undefined') window.customPokeGroups = [];
+if (typeof customStatusGroups === 'undefined') window.customStatusGroups = [];
+
+// 根据当前 tab 返回对应的分组上下文 {groups, items, itemLabel}
+function _getGroupCtx(tab) {
+    tab = tab || currentSubTab;
+    if (tab === 'pokes')    return { groups: customPokeGroups,   items: customPokes,   itemLabel: '拍一拍' };
+    if (tab === 'statuses') return { groups: customStatusGroups, items: customStatuses, itemLabel: '状态' };
+    // default: custom replies
+    return { groups: customReplyGroups, items: customReplies, itemLabel: '字卡' };
+}
+
+// 判断当前 tab 是否支持分组
+function _tabHasGroups(tab) {
+    tab = tab || currentSubTab;
+    return tab === 'custom' || tab === 'pokes' || tab === 'statuses';
+}
 
 let _batchSelectedIndices = new Set();
 let _batchModeActive = false;
@@ -229,7 +246,7 @@ function renderReplyLibrary() {
         return;
     }
 
-    if (currentMajorTab === 'reply' && currentSubTab === 'custom') {
+    if (_tabHasGroups()) {
         _renderCardViewWithGroups(list, filtered);
     } else {
         _renderAtmosphereList(list, filtered);
@@ -240,6 +257,7 @@ function _renderModernToolbar() {
     let toolbar = document.getElementById('batch-ops-toolbar');
     const isMainCustom = currentMajorTab === 'reply' && currentSubTab === 'custom';
     const isStickersTab = currentMajorTab === 'reply' && currentSubTab === 'stickers';
+    const hasGroupSupport = _tabHasGroups();
     const canBatch = isMainCustom || isStickersTab;
 
     if (!toolbar) {
@@ -251,6 +269,7 @@ function _renderModernToolbar() {
     toolbar.style.display = '';
 
     const disabledSet = _getDisabledItemsSet();
+    const ctx = _getGroupCtx();
     const totalItems = isMainCustom ? customReplies.length : (isStickersTab ? stickerLibrary.length : 0);
     const selectedCount = _batchSelectedIndices.size;
 
@@ -260,10 +279,10 @@ function _renderModernToolbar() {
     })();
 
     let groupFilterHtml = '';
-    if (isMainCustom && customReplyGroups && customReplyGroups.length > 0) {
-        const allCount = customReplies.length;
-        const ungroupedCount = customReplies.filter(item =>
-            !customReplyGroups.some(g => g.items && g.items.includes(item))
+    if (hasGroupSupport && ctx.groups && ctx.groups.length > 0) {
+        const allCount = ctx.items.length;
+        const ungroupedCount = ctx.items.filter(item =>
+            !ctx.groups.some(g => g.items && g.items.includes(item))
         ).length;
         groupFilterHtml = `
             <div id="group-filter-pills" style="
@@ -276,8 +295,8 @@ function _renderModernToolbar() {
                 <button class="gfp-btn ${_activeGroupFilter === 'ungrouped' ? 'gfp-active' : ''}" data-filter="ungrouped">
                     未分组 <span class="gfp-count">${ungroupedCount}</span>
                 </button>
-                ${customReplyGroups.map(g => {
-                    const cnt = (g.items || []).filter(item => customReplies.includes(item)).length;
+                ${ctx.groups.map(g => {
+                    const cnt = (g.items || []).filter(item => ctx.items.includes(item)).length;
                     return `<button class="gfp-btn ${_activeGroupFilter === g.id ? 'gfp-active' : ''} ${g.disabled ? 'gfp-disabled' : ''}"
                         data-filter="${g.id}"
                         style="${_activeGroupFilter === g.id ? `background:${g.color}22;border-color:${g.color};color:${g.color};` : ''}">
@@ -292,7 +311,7 @@ function _renderModernToolbar() {
 
     let batchActionsHtml = '';
     if (_batchModeActive) {
-        const showGroupBtn = isMainCustom;
+        const showGroupBtn = hasGroupSupport;
         batchActionsHtml = `
             <div id="batch-action-bar" style="
                 display:flex;align-items:center;gap:6px;padding:8px 15px;
@@ -376,7 +395,7 @@ function _renderModernToolbar() {
             <button class="toolbar-icon-btn ${_searchVisible ? 'active' : ''}" id="tb-search-btn" title="搜索">
                 ${ICONS.search}
             </button>
-            ${isMainCustom ? `
+            ${hasGroupSupport ? `
             <button class="toolbar-icon-btn" id="tb-groups-btn" title="分组管理">
                 ${ICONS.folder}
             </button>` : ''}
@@ -443,7 +462,7 @@ function _renderModernToolbar() {
         toolbar.querySelector('#tb-search-clear').onclick = () => { _searchVisible = false; _searchQuery = ''; renderReplyLibrary(); };
     }
 
-    if (isMainCustom) toolbar.querySelector('#tb-groups-btn')?.addEventListener('click', _showGroupManager);
+    if (hasGroupSupport) toolbar.querySelector('#tb-groups-btn')?.addEventListener('click', _showGroupManager);
     const tbBatch = toolbar.querySelector('#tb-batch-btn');
     if (tbBatch) {
         tbBatch.onclick = () => {
@@ -519,25 +538,28 @@ function _renderModernToolbar() {
 }
 
 function _renderCardViewWithGroups(list, items) {
+    const ctx = _getGroupCtx();
+    const groups = ctx.groups;
+    const sourceItems = ctx.items;
     const disabledSet = _getDisabledItemsSet();
     // 预建索引 Map，避免 indexOf 的 O(n²) 查找
     const replyIndexMap = new Map();
-    customReplies.forEach((r, i) => { if (!replyIndexMap.has(r)) replyIndexMap.set(r, i); });
+    sourceItems.forEach((r, i) => { if (!replyIndexMap.has(r)) replyIndexMap.set(r, i); });
     const itemsWithIdx = items.map(text => ({
         text,
         idx: replyIndexMap.has(text) ? replyIndexMap.get(text) : -1
     }));
 
     if (_activeGroupFilter === null) {
-        if (!customReplyGroups || customReplyGroups.length === 0) {
+        if (!groups || groups.length === 0) {
             _renderCardList(list, itemsWithIdx, disabledSet);
             return;
         }
 
         const inGroup = new Set();
-        customReplyGroups.forEach(g => {
+        groups.forEach(g => {
             const groupItems = (g.items || [])
-                .map(t => ({ text: t, idx: customReplies.indexOf(t) }))
+                .map(t => ({ text: t, idx: sourceItems.indexOf(t) }))
                 .filter(x => x.idx >= 0 && items.includes(x.text));
             groupItems.forEach(x => inGroup.add(x.idx));
             _renderGroupBlock(list, g, groupItems, disabledSet);
@@ -549,18 +571,18 @@ function _renderCardViewWithGroups(list, items) {
         }
     } else if (_activeGroupFilter === 'ungrouped') {
         const inGroup = new Set();
-        if (customReplyGroups) customReplyGroups.forEach(g => (g.items || []).forEach(t => {
-            const i = customReplies.indexOf(t);
+        if (groups) groups.forEach(g => (g.items || []).forEach(t => {
+            const i = sourceItems.indexOf(t);
             if (i >= 0) inGroup.add(i);
         }));
         const ungrouped = itemsWithIdx.filter(x => !inGroup.has(x.idx));
         if (ungrouped.length === 0) {
-            list.innerHTML = renderEmptyState('所有字卡均已分组');
+            list.innerHTML = renderEmptyState('所有内容均已分组');
         } else {
             _renderCardList(list, ungrouped, disabledSet);
         }
     } else {
-        const g = customReplyGroups.find(g => g.id === _activeGroupFilter);
+        const g = groups.find(g => g.id === _activeGroupFilter);
         if (!g) { list.innerHTML = renderEmptyState('分组不存在'); return; }
         const filtered = itemsWithIdx.filter(x => (g.items || []).includes(x.text));
         if (filtered.length === 0) {
@@ -652,7 +674,7 @@ function _renderGroupBlock(list, group, groupItems, disabledSet, isUngrouped = f
 
     section.querySelector('.grp-edit-btn')?.addEventListener('click', e => {
         e.stopPropagation();
-        _showGroupEditor(group);
+        _showGroupEditor(group, _getGroupCtx());
     });
 }
 
@@ -693,8 +715,9 @@ function _createCard(item, index, disabledSet) {
     const isSelected = _batchSelectedIndices.has(index);
 
     const groupBadge = (() => {
-        if (!customReplyGroups) return '';
-        const g = customReplyGroups.find(grp => grp.items && grp.items.includes(item));
+        const groups = _getGroupCtx().groups;
+        if (!groups) return '';
+        const g = groups.find(grp => grp.items && grp.items.includes(item));
         if (!g) return '';
         return `<span style="
             display:inline-flex;align-items:center;gap:3px;
@@ -759,7 +782,7 @@ function _createCard(item, index, disabledSet) {
     div.querySelector('[data-action="delete"]').onclick = (e) => { e.stopPropagation(); deleteItem(index); };
     div.querySelector('[data-action="edit"]').onclick = (e) => { e.stopPropagation(); editItem(index, item); };
     div.querySelector('[data-action="disable"]').onclick = (e) => { e.stopPropagation(); _toggleItemDisable(item); };
-    div.querySelector('[data-action="tag"]').onclick = (e) => { e.stopPropagation(); _showSingleItemGroupPicker(item); };
+    div.querySelector('[data-action="tag"]').onclick = (e) => { e.stopPropagation(); _showSingleItemGroupPicker(item, _getGroupCtx()); };
 
     return div;
 }
@@ -948,15 +971,18 @@ function _runDedup() {
 }
 
 function _showGroupManager() {
+    const ctx = _getGroupCtx();
+    const groups = ctx.groups;
+    const sourceItems = ctx.items;
     const overlay = _makeOverlay();
 
     const render = () => {
-        const noGroups = !customReplyGroups || customReplyGroups.length === 0;
+        const noGroups = !groups || groups.length === 0;
         panel.querySelector('#gm-list').innerHTML = noGroups
             ? `<div style="text-align:center;padding:32px 0;color:var(--text-secondary);font-size:13px;opacity:0.7;">
                     还没有分组<br><span style="font-size:11px;">点击下方按钮创建第一个分组</span>
                </div>`
-            : customReplyGroups.map((g, i) => `
+            : groups.map((g, i) => `
                 <div style="
                     display:flex;align-items:center;gap:10px;padding:12px 14px;
                     border-radius:13px;border:1.5px solid var(--border-color);
@@ -965,7 +991,7 @@ function _showGroupManager() {
                 ">
                     <span style="width:12px;height:12px;border-radius:50%;background:${g.color||'#868E96'};flex-shrink:0;box-shadow:0 0 0 2px ${g.color||'#868E96'}30;"></span>
                     <span style="flex:1;font-size:13px;color:var(--text-primary);font-weight:600;">${g.name}</span>
-                    <span style="font-size:11px;color:var(--text-secondary);">${(g.items||[]).filter(t=>customReplies.includes(t)).length} 条</span>
+                    <span style="font-size:11px;color:var(--text-secondary);">${(g.items||[]).filter(t=>sourceItems.includes(t)).length} 条</span>
                     <button data-action="toggle" data-i="${i}" style="
                         width:28px;height:28px;border-radius:8px;border:1px solid var(--border-color);
                         background:${g.disabled ? 'var(--accent-color)' : 'transparent'};
@@ -990,14 +1016,14 @@ function _showGroupManager() {
                 const i = parseInt(btn.dataset.i);
                 const action = btn.dataset.action;
                 if (action === 'toggle') {
-                    customReplyGroups[i].disabled = !customReplyGroups[i].disabled;
+                    groups[i].disabled = !groups[i].disabled;
                     throttledSaveData(); render(); renderReplyLibrary();
                 } else if (action === 'edit') {
                     overlay.remove();
-                    _showGroupEditor(customReplyGroups[i]);
+                    _showGroupEditor(groups[i], ctx);
                 } else if (action === 'del') {
-                    if (confirm(`删除分组「${customReplyGroups[i].name}」？（字卡不会被删除）`)) {
-                        customReplyGroups.splice(i, 1);
+                    if (confirm(`删除分组「${groups[i].name}」？（内容不会被删除）`)) {
+                        groups.splice(i, 1);
                         throttledSaveData(); render(); renderReplyLibrary();
                     }
                 }
@@ -1039,10 +1065,12 @@ function _showGroupManager() {
 
     panel.querySelector('#gm-close').onclick = () => overlay.remove();
     overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
-    panel.querySelector('#gm-add').onclick = () => { overlay.remove(); _showGroupEditor(null); };
+    panel.querySelector('#gm-add').onclick = () => { overlay.remove(); _showGroupEditor(null, ctx); };
 }
 
-function _showGroupEditor(group) {
+function _showGroupEditor(group, ctx) {
+    ctx = ctx || _getGroupCtx();
+    const groups = ctx.groups;
     const isNew = !group;
     const overlay = _makeOverlay();
     const initColor = group?.color || GROUP_COLORS[Math.floor(Math.random() * GROUP_COLORS.length)];
@@ -1166,8 +1194,7 @@ function _showGroupEditor(group) {
         const name = panel.querySelector('#ge-name').value.trim();
         if (!name) { showNotification('请输入分组名称', 'warning'); return; }
         if (isNew) {
-            if (!window.customReplyGroups) window.customReplyGroups = [];
-            customReplyGroups.push({ id: Date.now(), name, color: selectedColor, disabled: false, items: [] });
+            groups.push({ id: Date.now(), name, color: selectedColor, disabled: false, items: [] });
         } else {
             group.name = name;
             group.color = selectedColor;
@@ -1179,13 +1206,15 @@ function _showGroupEditor(group) {
     };
 }
 
-function _showSingleItemGroupPicker(itemText) {
-    if (!customReplyGroups || customReplyGroups.length === 0) {
-        if (confirm('还没有分组，是否立即创建？')) _showGroupEditor(null);
+function _showSingleItemGroupPicker(itemText, ctx) {
+    ctx = ctx || _getGroupCtx();
+    const groups = ctx.groups;
+    if (!groups || groups.length === 0) {
+        if (confirm('还没有分组，是否立即创建？')) _showGroupEditor(null, ctx);
         return;
     }
     const overlay = _makeOverlay();
-    const currentGroup = customReplyGroups.find(g => g.items && g.items.includes(itemText));
+    const currentGroup = groups.find(g => g.items && g.items.includes(itemText));
 
     const panel = document.createElement('div');
     panel.style.cssText = `
@@ -1202,7 +1231,7 @@ function _showSingleItemGroupPicker(itemText) {
                 <input type="radio" name="sgp" value="" ${!currentGroup ? 'checked' : ''} style="accent-color:var(--accent-color);">
                 <span style="font-size:13px;color:var(--text-secondary);">不分组</span>
             </label>
-            ${customReplyGroups.map((g, i) => `
+            ${groups.map((g, i) => `
                 <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px 12px;border-radius:11px;border:1.5px solid ${currentGroup?.id === g.id ? g.color : 'var(--border-color)'};background:${currentGroup?.id === g.id ? g.color + '10' : 'var(--primary-bg)'};">
                     <input type="radio" name="sgp" value="${i}" ${currentGroup?.id === g.id ? 'checked' : ''} style="accent-color:${g.color};">
                     <span style="width:9px;height:9px;border-radius:50%;background:${g.color||'#aaa'};flex-shrink:0;"></span>
@@ -1224,11 +1253,11 @@ function _showSingleItemGroupPicker(itemText) {
     panel.querySelector('#sgp-save').onclick = () => {
         const checked = panel.querySelector('input[name="sgp"]:checked');
         if (!checked) return;
-        customReplyGroups.forEach(g => { if (g.items) g.items = g.items.filter(t => t !== itemText); });
+        groups.forEach(g => { if (g.items) g.items = g.items.filter(t => t !== itemText); });
         if (checked.value !== '') {
             const idx = parseInt(checked.value);
-            if (!customReplyGroups[idx].items) customReplyGroups[idx].items = [];
-            customReplyGroups[idx].items.push(itemText);
+            if (!groups[idx].items) groups[idx].items = [];
+            groups[idx].items.push(itemText);
         }
         throttledSaveData();
         overlay.remove();
@@ -1238,11 +1267,14 @@ function _showSingleItemGroupPicker(itemText) {
 }
 
 function _showBatchGroupPicker() {
-    if (!customReplyGroups || customReplyGroups.length === 0) {
-        if (confirm('还没有分组，是否立即创建？')) { _showGroupEditor(null); return; }
+    const ctx = _getGroupCtx();
+    const groups = ctx.groups;
+    const sourceItems = ctx.items;
+    if (!groups || groups.length === 0) {
+        if (confirm('还没有分组，是否立即创建？')) { _showGroupEditor(null, ctx); return; }
         return;
     }
-    const selectedItems = [..._batchSelectedIndices].map(i => customReplies[i]);
+    const selectedItems = [..._batchSelectedIndices].map(i => sourceItems[i]);
     const overlay = _makeOverlay();
 
     const panel = document.createElement('div');
@@ -1255,13 +1287,13 @@ function _showBatchGroupPicker() {
     panel.innerHTML = `
         <style>@keyframes popIn { from{opacity:0;transform:scale(.93)} to{opacity:1;transform:scale(1)} }</style>
         <div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:4px;">批量分组</div>
-        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">将 <strong style="color:var(--text-primary);">${selectedItems.length}</strong> 条字卡移入分组</div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">将 <strong style="color:var(--text-primary);">${selectedItems.length}</strong> 条内容移入分组</div>
         <div style="display:flex;flex-direction:column;gap:7px;max-height:50vh;overflow-y:auto;margin-bottom:14px;">
             <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px 12px;border-radius:11px;border:1.5px solid var(--border-color);background:var(--primary-bg);">
                 <input type="radio" name="bgp" value="" checked style="accent-color:var(--accent-color);">
                 <span style="font-size:13px;color:var(--text-secondary);">移出所有分组</span>
             </label>
-            ${customReplyGroups.map((g, i) => `
+            ${groups.map((g, i) => `
                 <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px 12px;border-radius:11px;border:1.5px solid var(--border-color);background:var(--primary-bg);">
                     <input type="radio" name="bgp" value="${i}" style="accent-color:${g.color};">
                     <span style="width:9px;height:9px;border-radius:50%;background:${g.color||'#aaa'};flex-shrink:0;"></span>
@@ -1283,32 +1315,33 @@ function _showBatchGroupPicker() {
     panel.querySelector('#bgp-save').onclick = () => {
         const checked = panel.querySelector('input[name="bgp"]:checked');
         if (!checked) return;
-        customReplyGroups.forEach(g => { if (g.items) g.items = g.items.filter(t => !selectedItems.includes(t)); });
+        groups.forEach(g => { if (g.items) g.items = g.items.filter(t => !selectedItems.includes(t)); });
         if (checked.value !== '') {
             const idx = parseInt(checked.value);
-            if (!customReplyGroups[idx].items) customReplyGroups[idx].items = [];
+            if (!groups[idx].items) groups[idx].items = [];
             selectedItems.forEach(item => {
-                if (!customReplyGroups[idx].items.includes(item)) customReplyGroups[idx].items.push(item);
+                if (!groups[idx].items.includes(item)) groups[idx].items.push(item);
             });
         }
         throttledSaveData();
         _batchSelectedIndices.clear();
         overlay.remove();
         renderReplyLibrary();
-        showNotification(`✓ 已为 ${selectedItems.length} 条字卡分组`, 'success');
+        showNotification(`✓ 已为 ${selectedItems.length} 条内容分组`, 'success');
     };
 }
 
 function deleteItem(index) {
     if (!confirm('确定删除吗？')) return;
-    const item = (currentMajorTab === 'reply' && currentSubTab === 'custom') ? customReplies[index] : null;
+    const ctx = _getGroupCtx();
+    const item = _tabHasGroups() ? ctx.items[index] : null;
     if (currentMajorTab === 'reply' && currentSubTab === 'custom') customReplies.splice(index, 1);
     else if (currentSubTab === 'pokes') customPokes.splice(index, 1);
     else if (currentSubTab === 'statuses') customStatuses.splice(index, 1);
     else if (currentSubTab === 'mottos') customMottos.splice(index, 1);
     else if (currentSubTab === 'intros') customIntros.splice(index, 1);
-    if (item && customReplyGroups) {
-        customReplyGroups.forEach(g => { if (g.items) g.items = g.items.filter(t => t !== item); });
+    if (item && ctx.groups) {
+        ctx.groups.forEach(g => { if (g.items) g.items = g.items.filter(t => t !== item); });
     }
     throttledSaveData();
     renderReplyLibrary();
@@ -1327,10 +1360,13 @@ function editItem(index, oldText) {
         newText = prompt('修改内容:', oldText);
     }
     if (newText === null || newText.trim() === '') return;
-    if (customReplyGroups && currentMajorTab === 'reply' && currentSubTab === 'custom') {
-        customReplyGroups.forEach(g => {
-            if (g.items) { const i = g.items.indexOf(oldText); if (i >= 0) g.items[i] = newText.trim(); }
-        });
+    if (_tabHasGroups()) {
+        const ctx = _getGroupCtx();
+        if (ctx.groups) {
+            ctx.groups.forEach(g => {
+                if (g.items) { const i = g.items.indexOf(oldText); if (i >= 0) g.items[i] = newText.trim(); }
+            });
+        }
     }
     if (currentMajorTab === 'reply' && currentSubTab === 'custom') customReplies[index] = newText.trim();
     else if (currentSubTab === 'pokes') customPokes[index] = newText.trim();
@@ -1737,6 +1773,8 @@ function _makeOverlay() {
 }
 
 function _showBatchAddDialog() {
+    const ctx = _getGroupCtx();
+    const groups = ctx.groups;
     const overlay = _makeOverlay();
     const panel = document.createElement('div');
     panel.style.cssText = `
@@ -1748,14 +1786,14 @@ function _showBatchAddDialog() {
         animation:popIn 0.22s cubic-bezier(.34,1.56,.64,1);
     `;
 
-    const hasGroups = customReplyGroups && customReplyGroups.length > 0;
+    const hasGroups = groups && groups.length > 0;
     const groupPillsHTML = hasGroups ? `
         <button class="ba-grp-pill" data-gidx="-1" style="
             padding:5px 13px;border-radius:20px;font-size:12px;font-family:var(--font-family);cursor:pointer;
             border:1.5px solid var(--accent-color);background:var(--accent-color);color:#fff;font-weight:700;
             flex-shrink:0;transition:all .15s;
         ">不分组</button>
-        ${customReplyGroups.map((g, i) => `
+        ${groups.map((g, i) => `
         <button class="ba-grp-pill" data-gidx="${i}" style="
             padding:5px 13px;border-radius:20px;font-size:12px;font-family:var(--font-family);cursor:pointer;
             border:1.5px solid ${g.color}44;background:${g.color}18;color:${g.color};font-weight:600;
@@ -1770,7 +1808,7 @@ function _showBatchAddDialog() {
             @keyframes popIn { from{opacity:0;transform:scale(.93)} to{opacity:1;transform:scale(1)} }
             @keyframes baGroupSlide { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
         </style>
-        <div style="flex-shrink:0;font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:6px;">批量添加字卡</div>
+        <div style="flex-shrink:0;font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:6px;">批量添加${getCategoryName(currentSubTab)}</div>
         <div style="flex-shrink:0;font-size:12px;color:var(--text-secondary);margin-bottom:14px;line-height:1.6;">每行一条，自动去重</div>
 
         <div style="flex:1;overflow-y:auto;overflow-x:hidden;min-height:0;">
@@ -1857,7 +1895,7 @@ function _showBatchAddDialog() {
                 if (_selectedGroupIdx === -1) {
                     toggleLabel.textContent = '添加到分组';
                 } else {
-                    const g = customReplyGroups[_selectedGroupIdx];
+                    const g = groups[_selectedGroupIdx];
                     toggleLabel.textContent = g ? `分组：${g.name}` : '添加到分组';
                 }
             }
@@ -1869,7 +1907,7 @@ function _showBatchAddDialog() {
                     p.style.color = isActive ? '#fff' : 'var(--text-secondary)';
                     p.style.borderColor = isActive ? 'var(--accent-color)' : 'var(--border-color)';
                 } else {
-                    const g = customReplyGroups[gidx];
+                    const g = groups[gidx];
                     if (!g) return;
                     const isActive = _selectedGroupIdx === gidx;
                     p.style.background = isActive ? g.color : g.color + '18';
@@ -1891,16 +1929,20 @@ function _showBatchAddDialog() {
             const norm = normalizeStringStrict(val);
             const isDup = currentSubTab === 'custom'
                 ? (customReplies.some(r => normalizeStringStrict(r) === norm) || CONSTANTS.REPLY_MESSAGES.some(r => normalizeStringStrict(r) === norm))
+                : currentSubTab === 'pokes'
+                ? customPokes.some(r => normalizeStringStrict(r) === norm)
+                : currentSubTab === 'statuses'
+                ? customStatuses.some(r => normalizeStringStrict(r) === norm)
                 : false;
             if (isDup) { skipped++; return; }
             if (currentSubTab === 'custom') { customReplies.push(val); newItems.push(val); }
-            else if (currentSubTab === 'pokes') customPokes.push(val);
-            else if (currentSubTab === 'statuses') customStatuses.push(val);
+            else if (currentSubTab === 'pokes') { customPokes.push(val); newItems.push(val); }
+            else if (currentSubTab === 'statuses') { customStatuses.push(val); newItems.push(val); }
             else if (currentSubTab === 'mottos') customMottos.push(val);
             added++;
         });
-        if (currentSubTab === 'custom' && _selectedGroupIdx >= 0 && newItems.length > 0 && customReplyGroups) {
-            const targetGroup = customReplyGroups[_selectedGroupIdx];
+        if (_selectedGroupIdx >= 0 && newItems.length > 0 && groups) {
+            const targetGroup = groups[_selectedGroupIdx];
             if (targetGroup) {
                 if (!targetGroup.items) targetGroup.items = [];
                 newItems.forEach(item => {
@@ -1911,8 +1953,8 @@ function _showBatchAddDialog() {
         throttledSaveData();
         overlay.remove();
         renderReplyLibrary();
-        const groupHint = _selectedGroupIdx >= 0 && customReplyGroups?.[_selectedGroupIdx]
-            ? `，已加入「${customReplyGroups[_selectedGroupIdx].name}」` : '';
+        const groupHint = _selectedGroupIdx >= 0 && groups?.[_selectedGroupIdx]
+            ? `，已加入「${groups[_selectedGroupIdx].name}」` : '';
         showNotification(`✓ 添加 ${added} 条${skipped ? `，跳过 ${skipped} 条重复` : ''}${groupHint}`, 'success');
     };
 }
@@ -2028,7 +2070,7 @@ function initReplyLibraryListeners() {
                 }
                 return;
             }
-            if (currentSubTab === 'custom') {
+            if (currentSubTab === 'custom' || currentSubTab === 'pokes' || currentSubTab === 'statuses') {
                 _showBatchAddDialog(); return;
             }
             let input;

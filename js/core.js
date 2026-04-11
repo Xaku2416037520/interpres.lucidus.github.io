@@ -305,7 +305,9 @@ const loadData = async () => {
             localforage.getItem(getStorageKey('showPartnerNameInChat')),
             localforage.getItem(`${APP_PREFIX}themeSchemes`),
             localforage.getItem(getStorageKey('myStickerLibrary')),
-            localforage.getItem(getStorageKey('customReplyGroups'))
+            localforage.getItem(getStorageKey('customReplyGroups')),
+            localforage.getItem(getStorageKey('customPokeGroups')),
+            localforage.getItem(getStorageKey('customStatusGroups'))
         ]);
         const getVal = (index) => results[index].status === 'fulfilled' ? results[index].value : null;
 
@@ -328,6 +330,8 @@ const loadData = async () => {
         const savedThemeSchemes = getVal(16);
         const savedMyStickers = getVal(17);
         const savedReplyGroups = getVal(18);
+        const savedPokeGroups = getVal(19);
+        const savedStatusGroups = getVal(20);
 
         if (savedPartnerPersonas) partnerPersonas = savedPartnerPersonas;
 
@@ -391,6 +395,8 @@ const loadData = async () => {
 
         if (savedCustomReplies) customReplies = savedCustomReplies;
         if (savedReplyGroups) window.customReplyGroups = savedReplyGroups;
+        if (savedPokeGroups) window.customPokeGroups = savedPokeGroups;
+        if (savedStatusGroups) window.customStatusGroups = savedStatusGroups;
         if (savedAnniversaries) anniversaries = savedAnniversaries;
         if (savedStickers) stickerLibrary = savedStickers;
         if (savedMyStickers) myStickerLibrary = savedMyStickers;
@@ -563,6 +569,8 @@ const saveData = async () => {
         { key: 'chatSettings',           val: () => localforage.setItem(getStorageKey('chatSettings'), settings) },
         { key: 'customReplies',          val: () => localforage.setItem(getStorageKey('customReplies'), customReplies) },
         { key: 'customReplyGroups',      val: () => localforage.setItem(getStorageKey('customReplyGroups'), window.customReplyGroups || []) },
+        { key: 'customPokeGroups',        val: () => localforage.setItem(getStorageKey('customPokeGroups'), window.customPokeGroups || []) },
+        { key: 'customStatusGroups',      val: () => localforage.setItem(getStorageKey('customStatusGroups'), window.customStatusGroups || []) },
         { key: 'customEmojis',           val: () => localforage.setItem(getStorageKey('customEmojis'), customEmojis) },
         { key: 'anniversaries',          val: () => localforage.setItem(getStorageKey('anniversaries'), anniversaries) },
         { key: 'customPokes',            val: () => localforage.setItem(getStorageKey('customPokes'), customPokes) },
@@ -1132,6 +1140,27 @@ function createMessageFragment(msg, prevMsg, nextMsg, lastSenderRef) {
     return fragment;
 }
 
+function _updateReadReceiptsDOM() {
+    const container = DOMElements.chatContainer;
+    const rrStyle = settings.readReceiptStyle || 'icon';
+    container.querySelectorAll('.message-wrapper.sent').forEach(wrapper => {
+        const receiptEl = wrapper.querySelector('.read-receipt');
+        if (!receiptEl) return;
+        const msgId = wrapper.dataset.msgId || wrapper.dataset.id;
+        const msg = messages.find(m => String(m.id) === String(msgId));
+        if (!msg || msg.status !== 'read') return;
+        if (rrStyle === 'text') {
+            receiptEl.classList.add('read');
+            receiptEl.textContent = '已读';
+            receiptEl.style.opacity = '1';
+        } else {
+            receiptEl.classList.add('read');
+            const icon = receiptEl.querySelector('i');
+            if (icon) icon.className = 'fas fa-check-double';
+        }
+    });
+}
+
 function renderMessages(preserveScroll = false) {
     const container = DOMElements.chatContainer;
     const totalMessages = messages.length;
@@ -1197,12 +1226,10 @@ const addMessage = (message) => {
         const prevTs = new Date(prevMsg.timestamp).getTime();
 
         if (message.sender === prevMsg.sender && message.type === 'normal' && prevMsg.type === 'normal' && (currentTs - prevTs < 60000)) {
-            const timestampEl = lastWrapper.querySelector('.timestamp');
-            if (timestampEl) timestampEl.style.display = 'none';
-            if (prevMsg.sender === 'user') {
-                const receiptEl = lastWrapper.querySelector('.read-receipt');
-                if (receiptEl) receiptEl.style.display = 'none';
-            }
+            const metaEl = lastWrapper.querySelector('.message-meta');
+            if (metaEl) metaEl.style.display = 'none';
+            const avatarEl = lastWrapper.querySelector('.message-avatar');
+            if (avatarEl) avatarEl.style.marginBottom = '';
         }
     }
     
@@ -1351,7 +1378,7 @@ if (!isBatchMode && type === 'normal') {
                 changed = true;
             }
         });
-        if (changed) { renderMessages(false); throttledSaveData(); }
+        if (changed) { _updateReadReceiptsDOM(); throttledSaveData(); }
     }, readDelay);
 
     if (window._pendingReplyTimer) clearTimeout(window._pendingReplyTimer);
@@ -1522,7 +1549,7 @@ if (!isBatchMode && type === 'normal') {
                 }
             });
             if (changed) {
-                renderMessages(false); throttledSaveData();
+                _updateReadReceiptsDOM(); throttledSaveData();
             }
 
 if (partnerPersonas && partnerPersonas.length > 0 && Math.random() < 0.3) {
