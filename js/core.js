@@ -186,9 +186,7 @@ autoSendInterval: 5,
         partnerPokeCustomSoundUrl: '',
         soundVolume: 0.15,
         bottomCollapseMode: false,
-        emojiMixEnabled: true,
-        cloudAutoSyncEnabled: false,
-        cloudAutoSyncInterval: 10
+        emojiMixEnabled: true
             };
         }
 
@@ -627,9 +625,6 @@ const saveData = async () => {
     }
 
     _backupCriticalData();
-    if (typeof window.markLocalBackupUpdated === 'function') {
-        window.markLocalBackupUpdated('local-save');
-    }
 };
 
         function initializeRandomUI() {

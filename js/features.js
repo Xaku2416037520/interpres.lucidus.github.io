@@ -1352,11 +1352,14 @@ window.switchToAnnouncementPanel = function() {
     var subTabs = document.getElementById('cr-sub-tabs');
     var addBtn = document.getElementById('add-custom-reply');
     var titleEl = document.getElementById('cr-modal-title');
-    if (listArea) { listArea.style.display = 'none'; listArea.innerHTML = ''; }
+    // 隐藏并清空列表区域，彻底清除 emoji/sticker/字卡等残留内容
+    if (listArea) { listArea.style.display = 'none'; listArea.innerHTML = ''; listArea.className = 'content-list-area'; }
+    // 隐藏并清空批量操作工具栏，防止工具栏内容残留
+    if (batchToolbar) { batchToolbar.style.display = 'none'; batchToolbar.innerHTML = ''; }
+    // 隐藏并清空 sub tabs，防止 tab 按钮残留
+    if (subTabs) { subTabs.style.display = 'none'; subTabs.innerHTML = ''; }
     if (annPanel) { annPanel.style.display = 'block'; annPanel.scrollTop = 0; }
     if (toolbar) toolbar.style.display = 'none';
-    if (batchToolbar) batchToolbar.style.display = 'none';
-    if (subTabs) subTabs.style.display = 'none';
     if (addBtn) addBtn.style.display = 'none';
     if (titleEl) titleEl.textContent = '今日公告配置';
     var customData = {};

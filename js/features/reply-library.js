@@ -2210,8 +2210,7 @@ function initReplyLibraryListeners() {
             currentMajorTab = btn.dataset.major;
 
             if (currentMajorTab === 'announcement') {
-                const toolbar = document.getElementById('batch-ops-toolbar');
-                if (toolbar) toolbar.style.display = 'none';
+                // switchToAnnouncementPanel 内部已处理所有清理，这里不重复操作
                 if (typeof window.switchToAnnouncementPanel === 'function') window.switchToAnnouncementPanel();
                 return;
             }
