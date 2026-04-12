@@ -114,8 +114,26 @@ function deduplicateContentArray(arr, baseSystemArray = []) {
             }, duration);
         }
 
+        let _currentAudioContext = null;
+        let _currentAudio = null;
+
+        const stopCurrentSound = () => {
+            try {
+                if (_currentAudio) {
+                    _currentAudio.pause();
+                    _currentAudio.currentTime = 0;
+                    _currentAudio = null;
+                }
+                if (_currentAudioContext) {
+                    _currentAudioContext.close();
+                    _currentAudioContext = null;
+                }
+            } catch(e) {}
+        };
+
         const playSound = (type) => {
             if (!settings.soundEnabled) return;
+            stopCurrentSound();
             try {
                 // =============== 两方音效配置 ===============
                 const category = (() => {
@@ -166,7 +184,9 @@ function deduplicateContentArray(arr, baseSystemArray = []) {
                 if (resolvedCustomUrl) {
                     const audio = new Audio(resolvedCustomUrl);
                     audio.volume = Math.min(1, Math.max(0, settings.soundVolume || 0.15));
+                    _currentAudio = audio;
                     audio.play().catch(() => {});
+                    audio.addEventListener('ended', () => { _currentAudio = null; });
                     return;
                 }
 
@@ -214,6 +234,7 @@ function deduplicateContentArray(arr, baseSystemArray = []) {
                 })();
 
                 const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                _currentAudioContext = audioContext;
                 const gainNode = audioContext.createGain();
                 const vol = Math.min(0.55, Math.max(0.01, settings.soundVolume || 0.1));
 
@@ -248,12 +269,14 @@ function deduplicateContentArray(arr, baseSystemArray = []) {
                 const end = now + cfg.dur;
                 osc1.start(now);
                 osc2.start(now);
-                osc2.start(now);
 
                 gainNode.gain.exponentialRampToValueAtTime(0.0001, end);
 
                 osc1.stop(end);
                 osc2.stop(end);
+                audioContext.addEventListener('statechange', () => {
+                    if (audioContext.state === 'closed') _currentAudioContext = null;
+                });
             } catch (e) { console.warn("音频播放失败:", e); }
         };
 
