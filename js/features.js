@@ -1348,12 +1348,14 @@ window.switchToAnnouncementPanel = function() {
     var listArea = document.getElementById('custom-replies-list');
     var annPanel = document.getElementById('announcement-panel');
     var toolbar = document.getElementById('cr-toolbar');
+    var batchToolbar = document.getElementById('batch-ops-toolbar');
     var subTabs = document.getElementById('cr-sub-tabs');
     var addBtn = document.getElementById('add-custom-reply');
     var titleEl = document.getElementById('cr-modal-title');
-    if (listArea) listArea.style.display = 'none';
+    if (listArea) { listArea.style.display = 'none'; listArea.innerHTML = ''; }
     if (annPanel) { annPanel.style.display = 'block'; annPanel.scrollTop = 0; }
     if (toolbar) toolbar.style.display = 'none';
+    if (batchToolbar) batchToolbar.style.display = 'none';
     if (subTabs) subTabs.style.display = 'none';
     if (addBtn) addBtn.style.display = 'none';
     if (titleEl) titleEl.textContent = '今日公告配置';

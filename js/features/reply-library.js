@@ -6,10 +6,17 @@ if (typeof customStatusGroups === 'undefined') window.customStatusGroups = [];
 // 根据当前 tab 返回对应的分组上下文 {groups, items, itemLabel}
 function _getGroupCtx(tab) {
     tab = tab || currentSubTab;
-    if (tab === 'pokes')    return { groups: customPokeGroups,   items: customPokes,   itemLabel: '拍一拍' };
-    if (tab === 'statuses') return { groups: customStatusGroups, items: customStatuses, itemLabel: '状态' };
+    if (tab === 'pokes') {
+        if (!window.customPokeGroups) window.customPokeGroups = [];
+        return { groups: window.customPokeGroups, items: customPokes, itemLabel: '拍一拍' };
+    }
+    if (tab === 'statuses') {
+        if (!window.customStatusGroups) window.customStatusGroups = [];
+        return { groups: window.customStatusGroups, items: customStatuses, itemLabel: '状态' };
+    }
     // default: custom replies
-    return { groups: customReplyGroups, items: customReplies, itemLabel: '字卡' };
+    if (!window.customReplyGroups) window.customReplyGroups = [];
+    return { groups: window.customReplyGroups, items: customReplies, itemLabel: '字卡' };
 }
 
 // 判断当前 tab 是否支持分组
@@ -179,6 +186,7 @@ function renderReplyLibraryRaf() {
 }
 
 function renderReplyLibrary() {
+    if (currentMajorTab === 'announcement') return;
     const list = document.getElementById('custom-replies-list');
     const titleEl = document.getElementById('cr-modal-title');
     if (!list) return;
@@ -1388,17 +1396,53 @@ function renderEmptyState(text) {
 }
 
 function _showExportUI() {
+    // 读取公告数据（localStorage）
+    let _annCustomData = {};
+    let _annStatusPool = [];
+    try { _annCustomData = JSON.parse(localStorage.getItem('dg_custom_data') || '{}'); } catch(e) {}
+    try { _annStatusPool = JSON.parse(localStorage.getItem('dg_status_pool') || '[]'); } catch(e) {}
+    const _annTextCount = (_annCustomData.titles || []).length + (_annCustomData.notes || []).length;
+    const _annPoolCount = _annStatusPool.length;
+    const _annTotalCount = _annTextCount + _annPoolCount;
+
     const modules = [
-        { id: '_re_replies',  icon: ICONS.comment,   label: '主字卡',    count: customReplies.length,          key: 'customReplies' },
-        { id: '_re_pokes',    icon: ICONS.hand,      label: '拍一拍',    count: customPokes.length,            key: 'customPokes' },
-        { id: '_re_statuses', icon: ICONS.dot,       label: '对方状态',  count: customStatuses.length,         key: 'customStatuses' },
-        { id: '_re_mottos',   icon: ICONS.quote,     label: '顶部格言',  count: customMottos.length,           key: 'customMottos' },
-        { id: '_re_intros',   icon: ICONS.play,      label: '开场动画',  count: customIntros.length,           key: 'customIntros' },
-        { id: '_re_emojis',   icon: ICONS.smile,     label: 'Emoji 库',  count: customEmojis.length,           key: 'customEmojis' },
-        { id: '_re_groups',   icon: ICONS.folderBig, label: '字卡分组',  count: (customReplyGroups||[]).length, key: 'customReplyGroups', extra: true },
+        { id: '_re_replies',  icon: ICONS.comment,   label: '主字卡',        count: customReplies.length,                     key: 'customReplies' },
+        { id: '_re_pokes',    icon: ICONS.hand,      label: '拍一拍',        count: customPokes.length,                       key: 'customPokes' },
+        { id: '_re_statuses', icon: ICONS.dot,       label: '对方状态',      count: customStatuses.length,                    key: 'customStatuses' },
+        { id: '_re_mottos',   icon: ICONS.quote,     label: '顶部格言',      count: customMottos.length,                      key: 'customMottos' },
+        { id: '_re_intros',   icon: ICONS.play,      label: '开场动画',      count: customIntros.length,                      key: 'customIntros' },
+        { id: '_re_emojis',   icon: ICONS.smile,     label: 'Emoji 库',      count: customEmojis.length,                      key: 'customEmojis' },
+        { id: '_re_ann',      icon: ICONS.folderBig, label: '今日公告配置',  count: _annTotalCount,                           key: 'announcementConfig' },
+        { id: '_re_groups',   icon: ICONS.folderBig, label: '字卡分组',      count: (customReplyGroups||[]).length,            key: 'customReplyGroups',  extra: true },
+        { id: '_re_pokg',     icon: ICONS.folderBig, label: '拍一拍分组',    count: (window.customPokeGroups||[]).length,     key: 'customPokeGroups',   extra: true },
+        { id: '_re_statg',    icon: ICONS.folderBig, label: '对方状态分组',  count: (window.customStatusGroups||[]).length,   key: 'customStatusGroups', extra: true },
     ];
 
-    if (customReplyGroups && customReplyGroups.length > 0) {
+    // 检测当前 tab 决定哪个分组有「按分组导出」选项
+    const replyGroupsExist  = customReplyGroups        && customReplyGroups.length > 0;
+    const pokeGroupsExist   = window.customPokeGroups  && window.customPokeGroups.length > 0;
+    const statusGroupsExist = window.customStatusGroups && window.customStatusGroups.length > 0;
+    const onAnnTab          = currentMajorTab === 'announcement';
+    const anyGroupExists    = replyGroupsExist || pokeGroupsExist || statusGroupsExist || onAnnTab;
+
+    // 根据当前 tab 决定「按分组导出」对应哪个类型
+    const onPokeTab   = currentMajorTab === 'atmosphere' && currentSubTab === 'pokes';
+    const onStatusTab = currentMajorTab === 'atmosphere' && currentSubTab === 'statuses';
+    let groupExportType = null;
+    if (onAnnTab)                          groupExportType = 'announcement';
+    if (onPokeTab   && pokeGroupsExist)    groupExportType = 'pokes';
+    if (onStatusTab && statusGroupsExist)  groupExportType = 'statuses';
+    // 只有在字卡 tab（非拍一拍/状态/公告 tab）时才 fallback 到字卡分组
+    if (!groupExportType && !onPokeTab && !onStatusTab && !onAnnTab && replyGroupsExist) groupExportType = 'replies';
+
+    const groupDescMap = {
+        replies:      '仅导出指定分组的字卡内容',
+        pokes:        '仅导出指定分组的拍一拍内容',
+        statuses:     '仅导出指定分组的对方状态内容',
+        announcement: '选择要导出的公告内容模块',
+    };
+
+    if (anyGroupExists) {
         const overlay = _makeOverlay();
         const panel = document.createElement('div');
         panel.style.cssText = `
@@ -1425,6 +1469,7 @@ function _showExportUI() {
                         <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">自由选择要导出的模块</div>
                     </div>
                 </button>
+                ${groupExportType ? `
                 <button id="_exp_group_btn" style="
                     display:flex;align-items:center;gap:12px;padding:14px 16px;
                     border:1.5px solid var(--border-color);border-radius:14px;
@@ -1433,9 +1478,9 @@ function _showExportUI() {
                     <div style="width:38px;height:38px;border-radius:10px;background:rgba(var(--accent-color-rgb),0.12);display:flex;align-items:center;justify-content:center;color:var(--accent-color);flex-shrink:0;">${ICONS.folderBig}</div>
                     <div>
                         <div style="font-size:13px;font-weight:600;color:var(--text-primary);">按分组导出</div>
-                        <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">仅导出指定分组的字卡内容</div>
+                        <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${groupDescMap[groupExportType] || '仅导出指定分组内容'}</div>
                     </div>
-                </button>
+                </button>` : ''}
             </div>
             <button id="_exp_cancel_btn" style="
                 width:100%;margin-top:14px;padding:12px;border:1.5px solid var(--border-color);
@@ -1457,10 +1502,17 @@ function _showExportUI() {
             });
         };
 
-        panel.querySelector('#_exp_group_btn').onclick = () => {
-            overlay.remove();
-            _showGroupExportPicker();
-        };
+        const groupBtn = panel.querySelector('#_exp_group_btn');
+        if (groupBtn) {
+            groupBtn.onclick = () => {
+                overlay.remove();
+                if (groupExportType === 'announcement') {
+                    _showAnnouncementExportPicker();
+                } else {
+                    _showGroupExportPicker(groupExportType);
+                }
+            };
+        }
         return;
     }
 
@@ -1473,20 +1525,39 @@ function _showExportUI() {
 function _doExport(selectedModules) {
     const libraryData = { exportDate: new Date().toISOString(), modules: [] };
     selectedModules.forEach(m => {
-        if (m.key === 'customReplies')       { libraryData.customReplies = customReplies; libraryData.modules.push('replies'); }
-        else if (m.key === 'customPokes')    { libraryData.customPokes = customPokes; libraryData.modules.push('pokes'); }
-        else if (m.key === 'customStatuses') { libraryData.customStatuses = customStatuses; libraryData.modules.push('statuses'); }
-        else if (m.key === 'customMottos')   { libraryData.customMottos = customMottos; libraryData.modules.push('mottos'); }
-        else if (m.key === 'customIntros')   { libraryData.customIntros = customIntros; libraryData.modules.push('intros'); }
-        else if (m.key === 'customEmojis')   { libraryData.customEmojis = customEmojis; libraryData.modules.push('emojis'); }
-        else if (m.key === 'customReplyGroups') { libraryData.customReplyGroups = customReplyGroups; libraryData.modules.push('groups'); }
+        if (m.key === 'customReplies')         { libraryData.customReplies      = customReplies;                  libraryData.modules.push('replies'); }
+        else if (m.key === 'customPokes')      { libraryData.customPokes        = customPokes;                    libraryData.modules.push('pokes'); }
+        else if (m.key === 'customStatuses')   { libraryData.customStatuses     = customStatuses;                 libraryData.modules.push('statuses'); }
+        else if (m.key === 'customMottos')     { libraryData.customMottos       = customMottos;                   libraryData.modules.push('mottos'); }
+        else if (m.key === 'customIntros')     { libraryData.customIntros       = customIntros;                   libraryData.modules.push('intros'); }
+        else if (m.key === 'customEmojis')     { libraryData.customEmojis       = customEmojis;                   libraryData.modules.push('emojis'); }
+        else if (m.key === 'customReplyGroups')  { libraryData.customReplyGroups  = window.customReplyGroups  || []; libraryData.modules.push('groups'); }
+        else if (m.key === 'customPokeGroups')   { libraryData.customPokeGroups   = window.customPokeGroups   || []; libraryData.modules.push('pokeGroups'); }
+        else if (m.key === 'customStatusGroups') { libraryData.customStatusGroups = window.customStatusGroups || []; libraryData.modules.push('statusGroups'); }
+        else if (m.key === 'announcementConfig') {
+            let _acd = {}; let _asp = [];
+            try { _acd = JSON.parse(localStorage.getItem('dg_custom_data') || '{}'); } catch(e) {}
+            try { _asp = JSON.parse(localStorage.getItem('dg_status_pool') || '[]'); } catch(e) {}
+            libraryData.announcementConfig = { customData: _acd, statusPool: _asp };
+            libraryData.modules.push('announcementConfig');
+        }
     });
     const fileName = `reply-library-${libraryData.modules.join('+')}-${new Date().toISOString().slice(0,10)}.json`;
     exportDataToMobileOrPC(JSON.stringify(libraryData, null, 2), fileName);
     showNotification('✓ 字卡导出成功', 'success');
 }
 
-function _showGroupExportPicker() {
+function _showGroupExportPicker(type) {
+    // type: 'replies' | 'pokes' | 'statuses'
+    type = type || 'replies';
+
+    const cfgMap = {
+        replies:  { groups: window.customReplyGroups  || [], items: customReplies,   groupKey: 'customReplyGroups',  itemKey: 'customReplies',  moduleTag: ['replies','groups'],       filePrefix: 'reply-groups',  label: '字卡',    successUnit: '条字卡' },
+        pokes:    { groups: window.customPokeGroups   || [], items: customPokes,      groupKey: 'customPokeGroups',   itemKey: 'customPokes',    moduleTag: ['pokes','pokeGroups'],     filePrefix: 'poke-groups',   label: '拍一拍',  successUnit: '条拍一拍' },
+        statuses: { groups: window.customStatusGroups || [], items: customStatuses,   groupKey: 'customStatusGroups', itemKey: 'customStatuses', moduleTag: ['statuses','statusGroups'],filePrefix: 'status-groups', label: '对方状态',successUnit: '条状态' },
+    };
+    const cfg = cfgMap[type] || cfgMap.replies;
+
     const overlay = _makeOverlay();
     const panel = document.createElement('div');
     panel.style.cssText = `
@@ -1501,7 +1572,7 @@ function _showGroupExportPicker() {
         <div style="font-size:16px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:8px;">
             ${ICONS.folderBig} 选择分组导出
         </div>
-        <div style="font-size:12px;color:var(--text-secondary);">勾选要导出的分组，仅导出这些分组的字卡</div>
+        <div style="font-size:12px;color:var(--text-secondary);">勾选要导出的分组，仅导出这些分组的${cfg.label}</div>
         <div id="_gep_list" style="display:flex;flex-direction:column;gap:8px;overflow-y:auto;max-height:50vh;"></div>
         <div style="display:flex;gap:10px;">
             <button id="_gep_cancel" style="flex:1;padding:12px;border:1.5px solid var(--border-color);border-radius:13px;background:none;color:var(--text-secondary);font-size:13px;cursor:pointer;font-family:var(--font-family);">取消</button>
@@ -1514,8 +1585,8 @@ function _showGroupExportPicker() {
     document.body.appendChild(overlay);
 
     const listEl = panel.querySelector('#_gep_list');
-    customReplyGroups.forEach((g, i) => {
-        const cnt = (g.items || []).filter(t => customReplies.includes(t)).length;
+    cfg.groups.forEach((g, i) => {
+        const cnt = (g.items || []).filter(t => cfg.items.includes(t)).length;
         const row = document.createElement('label');
         row.style.cssText = `display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:13px;border:1.5px solid var(--border-color);background:var(--primary-bg);cursor:pointer;transition:border-color 0.15s;`;
         row.innerHTML = `
@@ -1534,27 +1605,101 @@ function _showGroupExportPicker() {
         const checked = [...panel.querySelectorAll('input[type=checkbox]:checked')].map(cb => parseInt(cb.value));
         if (!checked.length) { showNotification('请至少选择一个分组', 'warning'); return; }
 
-        const selectedGroups = checked.map(i => customReplyGroups[i]);
+        const selectedGroups = checked.map(i => cfg.groups[i]);
         const allItems = new Set();
         const exportGroups = [];
         selectedGroups.forEach(g => {
-            const items = (g.items || []).filter(t => customReplies.includes(t));
+            const items = (g.items || []).filter(t => cfg.items.includes(t));
             items.forEach(t => allItems.add(t));
             exportGroups.push({ ...g, items });
         });
 
         const libraryData = {
             exportDate: new Date().toISOString(),
-            modules: ['replies', 'groups'],
-            customReplies: [...allItems],
-            customReplyGroups: exportGroups,
-            _groupExport: true
+            modules: cfg.moduleTag,
+            [cfg.itemKey]:  [...allItems],
+            [cfg.groupKey]: exportGroups,
+            _groupExport: true,
+            _groupExportType: type
         };
         const groupNames = selectedGroups.map(g => g.name).join('+');
-        const fileName = `reply-groups-${groupNames}-${new Date().toISOString().slice(0,10)}.json`;
+        const fileName = `${cfg.filePrefix}-${groupNames}-${new Date().toISOString().slice(0,10)}.json`;
         exportDataToMobileOrPC(JSON.stringify(libraryData, null, 2), fileName);
         overlay.remove();
-        showNotification(`✓ 已导出 ${checked.length} 个分组，共 ${allItems.size} 条字卡`, 'success');
+        showNotification(`✓ 已导出 ${checked.length} 个分组，共 ${allItems.size} ${cfg.successUnit}`, 'success');
+    };
+}
+
+function _showAnnouncementExportPicker() {
+    let annCustomData = {};
+    let annStatusPool = [];
+    try { annCustomData = JSON.parse(localStorage.getItem('dg_custom_data') || '{}'); } catch(e) {}
+    try { annStatusPool = JSON.parse(localStorage.getItem('dg_status_pool') || '[]'); } catch(e) {}
+    const textCount = (annCustomData.titles || []).length + (annCustomData.notes || []).length;
+    const poolCount = annStatusPool.length;
+
+    const options = [
+        { id: '_aep_text', label: '公告文案', desc: `${textCount} 条内容`, key: 'announcementText', hasData: textCount > 0 },
+        { id: '_aep_pool', label: '状态随机库', desc: `${poolCount} 条条目`, key: 'announcementStatusPool', hasData: poolCount > 0 },
+    ];
+
+    const overlay = _makeOverlay();
+    const panel = document.createElement('div');
+    panel.style.cssText = `
+        background:var(--secondary-bg);border-radius:22px;padding:24px;
+        width:92%;max-width:380px;
+        box-shadow:0 24px 80px rgba(0,0,0,.45);
+        animation:popIn 0.22s cubic-bezier(.34,1.56,.64,1);
+        display:flex;flex-direction:column;gap:14px;
+    `;
+    panel.innerHTML = `
+        <style>@keyframes popIn{from{opacity:0;transform:scale(.93)}to{opacity:1;transform:scale(1)}}</style>
+        <div style="font-size:16px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:8px;">
+            ${ICONS.folderBig} 选择导出内容
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);">勾选要导出的公告模块</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+            ${options.map(opt => `
+                <label style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:13px;border:1.5px solid var(--border-color);background:var(--primary-bg);cursor:pointer;">
+                    <input type="checkbox" id="${opt.id}" ${opt.hasData ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent-color);flex-shrink:0;">
+                    <div style="flex:1;">
+                        <div style="font-size:13px;font-weight:600;color:var(--text-primary);">${opt.label}</div>
+                        <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${opt.desc}</div>
+                    </div>
+                </label>
+            `).join('')}
+        </div>
+        <div style="display:flex;gap:10px;">
+            <button id="_aep_cancel" style="flex:1;padding:12px;border:1.5px solid var(--border-color);border-radius:13px;background:none;color:var(--text-secondary);font-size:13px;cursor:pointer;font-family:var(--font-family);">取消</button>
+            <button id="_aep_confirm" style="flex:2;padding:12px;border:none;border-radius:13px;background:var(--accent-color);color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:var(--font-family);display:flex;align-items:center;justify-content:center;gap:8px;">
+                ${ICONS.export} 导出
+            </button>
+        </div>
+    `;
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    panel.querySelector('#_aep_cancel').onclick = () => overlay.remove();
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+    panel.querySelector('#_aep_confirm').onclick = () => {
+        const selected = options.filter(opt => panel.querySelector('#' + opt.id)?.checked);
+        if (!selected.length) { showNotification('请至少选择一项', 'warning'); return; }
+
+        const libraryData = { exportDate: new Date().toISOString(), modules: [] };
+        selected.forEach(opt => {
+            if (opt.key === 'announcementText') {
+                libraryData.announcementText = { titles: annCustomData.titles || [], notes: annCustomData.notes || [] };
+                libraryData.modules.push('announcementText');
+            } else if (opt.key === 'announcementStatusPool') {
+                libraryData.announcementStatusPool = annStatusPool;
+                libraryData.modules.push('announcementStatusPool');
+            }
+        });
+        const fileName = `announcement-${libraryData.modules.join('+')}-${new Date().toISOString().slice(0,10)}.json`;
+        exportDataToMobileOrPC(JSON.stringify(libraryData, null, 2), fileName);
+        overlay.remove();
+        showNotification(`✓ 已导出 ${selected.map(o => o.label).join('、')}`, 'success');
     };
 }
 
@@ -1574,8 +1719,10 @@ function _parseFlexibleJSON(text) {
 
 function _normalizeImportData(data) {
     if (!data || typeof data !== 'object') return data;
-    const knownKeys = ['customReplies','customPokes','customStatuses','customMottos','customIntros','customEmojis','customReplyGroups','disabledDefaultReplies'];
-    const hasNewFormat = knownKeys.some(k => Array.isArray(data[k]));
+    const knownKeys = ['customReplies','customPokes','customStatuses','customMottos','customIntros','customEmojis',
+                       'customReplyGroups','customPokeGroups','customStatusGroups','disabledDefaultReplies',
+                       'announcementConfig','announcementText','announcementStatusPool'];
+    const hasNewFormat = knownKeys.some(k => data[k] !== undefined && data[k] !== null);
     if (hasNewFormat) return data;
     if (Array.isArray(data)) {
         return { customReplies: data };
@@ -1584,19 +1731,36 @@ function _normalizeImportData(data) {
 }
 
 function _showImportUI(data) {
-    const knownFields = ['customReplies','customPokes','customStatuses','customMottos','customIntros','customEmojis','customReplyGroups'];
-    const hasValid = knownFields.some(f => Array.isArray(data[f]));
+    const knownFields = ['customReplies','customPokes','customStatuses','customMottos','customIntros','customEmojis',
+                         'customReplyGroups','customPokeGroups','customStatusGroups',
+                         'announcementConfig','announcementText','announcementStatusPool'];
+    const hasValid = knownFields.some(f => data[f] !== undefined && data[f] !== null);
     if (!hasValid) { showNotification('无效的字卡备份文件', 'error'); return; }
 
+    // 计算公告模块的 displayCount
+    const _annCfg = data.announcementConfig;
+    const _annText = data.announcementText;
+    const _annPool = data.announcementStatusPool;
+    const _annCfgCount = _annCfg
+        ? ((_annCfg.customData?.titles||[]).length + (_annCfg.customData?.notes||[]).length + (_annCfg.statusPool||[]).length)
+        : undefined;
+    const _annTextCount = _annText ? ((_annText.titles||[]).length + (_annText.notes||[]).length) : undefined;
+    const _annPoolCount = Array.isArray(_annPool) ? _annPool.length : undefined;
+
     const modules = [
-        { id: '_ri_replies',  icon: ICONS.comment,   label: '主字卡',    data: data.customReplies,     key: 'customReplies' },
-        { id: '_ri_pokes',    icon: ICONS.hand,      label: '拍一拍',    data: data.customPokes,       key: 'customPokes' },
-        { id: '_ri_statuses', icon: ICONS.dot,       label: '对方状态',  data: data.customStatuses,    key: 'customStatuses' },
-        { id: '_ri_mottos',   icon: ICONS.quote,     label: '顶部格言',  data: data.customMottos,      key: 'customMottos' },
-        { id: '_ri_intros',   icon: ICONS.play,      label: '开场动画',  data: data.customIntros,      key: 'customIntros' },
-        { id: '_ri_emojis',   icon: ICONS.smile,     label: 'Emoji 库',  data: data.customEmojis,      key: 'customEmojis' },
-        { id: '_ri_groups',   icon: ICONS.folderBig, label: '字卡分组',  data: data.customReplyGroups, key: 'customReplyGroups', extra: true },
-    ].filter(m => Array.isArray(m.data));
+        { id: '_ri_replies',  icon: ICONS.comment,   label: '主字卡',        data: data.customReplies,       key: 'customReplies' },
+        { id: '_ri_pokes',    icon: ICONS.hand,      label: '拍一拍',        data: data.customPokes,         key: 'customPokes' },
+        { id: '_ri_statuses', icon: ICONS.dot,       label: '对方状态',      data: data.customStatuses,      key: 'customStatuses' },
+        { id: '_ri_mottos',   icon: ICONS.quote,     label: '顶部格言',      data: data.customMottos,        key: 'customMottos' },
+        { id: '_ri_intros',   icon: ICONS.play,      label: '开场动画',      data: data.customIntros,        key: 'customIntros' },
+        { id: '_ri_emojis',   icon: ICONS.smile,     label: 'Emoji 库',      data: data.customEmojis,        key: 'customEmojis' },
+        { id: '_ri_ann',      icon: ICONS.folderBig, label: '今日公告配置',  data: [_annCfg],                key: 'announcementConfig',    displayCount: _annCfgCount },
+        { id: '_ri_anntext',  icon: ICONS.comment,   label: '公告文案',      data: [_annText],               key: 'announcementText',      displayCount: _annTextCount },
+        { id: '_ri_annpool',  icon: ICONS.dot,       label: '状态随机库',    data: _annPool,                 key: 'announcementStatusPool', displayCount: _annPoolCount },
+        { id: '_ri_groups',   icon: ICONS.folderBig, label: '字卡分组',      data: data.customReplyGroups,   key: 'customReplyGroups',  extra: true },
+        { id: '_ri_pokg',     icon: ICONS.folderBig, label: '拍一拍分组',    data: data.customPokeGroups,    key: 'customPokeGroups',   extra: true },
+        { id: '_ri_statg',    icon: ICONS.folderBig, label: '对方状态分组',  data: data.customStatusGroups,  key: 'customStatusGroups', extra: true },
+    ].filter(m => m.data !== undefined && m.data !== null && (Array.isArray(m.data) ? m.data.length > 0 && m.data[0] !== undefined : true));
 
     _showIOSheet(`导入字卡`, `文件中包含 ${modules.length} 个模块`, modules, ICONS.import, (selected, mode) => {
         if (!selected.length) { showNotification('请至少选择一项', 'error'); return; }
@@ -1605,13 +1769,27 @@ function _showImportUI(data) {
             let totalAdded = 0;
             if (overwrite) {
                 selected.forEach(m => {
-                    if (m.key === 'customReplies') { customReplies = data.customReplies; totalAdded += data.customReplies.length; }
-                    else if (m.key === 'customPokes') { customPokes = data.customPokes; totalAdded += data.customPokes.length; }
-                    else if (m.key === 'customStatuses') { customStatuses = data.customStatuses; totalAdded += data.customStatuses.length; }
-                    else if (m.key === 'customMottos') { customMottos = data.customMottos; totalAdded += data.customMottos.length; }
-                    else if (m.key === 'customIntros') { customIntros = data.customIntros; totalAdded += data.customIntros.length; }
-                    else if (m.key === 'customEmojis') { customEmojis = data.customEmojis; }
-                    else if (m.key === 'customReplyGroups') { window.customReplyGroups = data.customReplyGroups; }
+                    if (m.key === 'customReplies')         { customReplies               = data.customReplies;       totalAdded += data.customReplies.length; }
+                    else if (m.key === 'customPokes')      { customPokes                 = data.customPokes;         totalAdded += data.customPokes.length; }
+                    else if (m.key === 'customStatuses')   { customStatuses              = data.customStatuses;      totalAdded += data.customStatuses.length; }
+                    else if (m.key === 'customMottos')     { customMottos                = data.customMottos;        totalAdded += data.customMottos.length; }
+                    else if (m.key === 'customIntros')     { customIntros                = data.customIntros;        totalAdded += data.customIntros.length; }
+                    else if (m.key === 'customEmojis')     { customEmojis                = data.customEmojis; }
+                    else if (m.key === 'customReplyGroups')  { window.customReplyGroups  = data.customReplyGroups; }
+                    else if (m.key === 'customPokeGroups')   { window.customPokeGroups   = data.customPokeGroups; }
+                    else if (m.key === 'customStatusGroups') { window.customStatusGroups = data.customStatusGroups; }
+                    else if (m.key === 'announcementConfig') {
+                        if (_annCfg.customData) localStorage.setItem('dg_custom_data', JSON.stringify(_annCfg.customData));
+                        if (_annCfg.statusPool) localStorage.setItem('dg_status_pool', JSON.stringify(_annCfg.statusPool));
+                    }
+                    else if (m.key === 'announcementText') {
+                        let cur = {}; try { cur = JSON.parse(localStorage.getItem('dg_custom_data') || '{}'); } catch(e) {}
+                        cur.titles = _annText.titles || []; cur.notes = _annText.notes || [];
+                        localStorage.setItem('dg_custom_data', JSON.stringify(cur));
+                    }
+                    else if (m.key === 'announcementStatusPool') {
+                        localStorage.setItem('dg_status_pool', JSON.stringify(_annPool));
+                    }
                 });
             } else {
                 selected.forEach(m => {
@@ -1642,11 +1820,46 @@ function _showImportUI(data) {
                         data.customReplyGroups.forEach(dg => {
                             if (!customReplyGroups.find(g => g.name === dg.name)) customReplyGroups.push(dg);
                         });
+                    } else if (m.key === 'customPokeGroups') {
+                        if (!window.customPokeGroups) window.customPokeGroups = [];
+                        data.customPokeGroups.forEach(dg => {
+                            if (!window.customPokeGroups.find(g => g.name === dg.name)) window.customPokeGroups.push(dg);
+                        });
+                    } else if (m.key === 'customStatusGroups') {
+                        if (!window.customStatusGroups) window.customStatusGroups = [];
+                        data.customStatusGroups.forEach(dg => {
+                            if (!window.customStatusGroups.find(g => g.name === dg.name)) window.customStatusGroups.push(dg);
+                        });
+                    } else if (m.key === 'announcementConfig') {
+                        // 追加：合并 titles/notes，pool 去重追加
+                        let cur = {}; try { cur = JSON.parse(localStorage.getItem('dg_custom_data') || '{}'); } catch(e) {}
+                        if (_annCfg.customData) {
+                            cur.titles = [...new Set([...(cur.titles||[]), ...(_annCfg.customData.titles||[])])];
+                            cur.notes  = [...new Set([...(cur.notes||[]),  ...(_annCfg.customData.notes||[])])];
+                            localStorage.setItem('dg_custom_data', JSON.stringify(cur));
+                        }
+                        if (_annCfg.statusPool) {
+                            let pool = []; try { pool = JSON.parse(localStorage.getItem('dg_status_pool') || '[]'); } catch(e) {}
+                            const existStatuses = new Set(pool.map(p => p.status));
+                            _annCfg.statusPool.forEach(p => { if (!existStatuses.has(p.status)) pool.push(p); });
+                            localStorage.setItem('dg_status_pool', JSON.stringify(pool));
+                        }
+                    } else if (m.key === 'announcementText') {
+                        let cur = {}; try { cur = JSON.parse(localStorage.getItem('dg_custom_data') || '{}'); } catch(e) {}
+                        cur.titles = [...new Set([...(cur.titles||[]), ...(_annText.titles||[])])];
+                        cur.notes  = [...new Set([...(cur.notes||[]),  ...(_annText.notes||[])])];
+                        localStorage.setItem('dg_custom_data', JSON.stringify(cur));
+                    } else if (m.key === 'announcementStatusPool') {
+                        let pool = []; try { pool = JSON.parse(localStorage.getItem('dg_status_pool') || '[]'); } catch(e) {}
+                        const existStatuses = new Set(pool.map(p => p.status));
+                        _annPool.forEach(p => { if (!existStatuses.has(p.status)) pool.push(p); });
+                        localStorage.setItem('dg_status_pool', JSON.stringify(pool));
                     }
                 });
             }
             throttledSaveData();
             if (typeof renderReplyLibrary === 'function') renderReplyLibrary();
+            if (typeof window.renderAnnStatusPool === 'function') window.renderAnnStatusPool();
             showNotification(`✓ 导入成功（${overwrite ? '覆盖' : '追加'}）${totalAdded > 0 ? `，共 ${totalAdded} 条` : ''}`, 'success', 3000);
         } catch (err) {
             console.error('字卡导入失败:', err);
@@ -1713,7 +1926,7 @@ function _showIOSheet(title, subtitle, modules, icon, onConfirm, showMode = fals
                         <div class="io-icon-box">${m.icon}</div>
                         <div style="flex:1;">
                             <div style="font-size:13px;font-weight:600;color:var(--text-primary);">${m.label}</div>
-                            <div style="font-size:11px;color:var(--text-secondary);">${m.data ? m.data.length : m.count} 条${m.extra ? ' · 含分组结构' : ''}</div>
+                            <div style="font-size:11px;color:var(--text-secondary);">${m.displayCount !== undefined ? m.displayCount : (m.data ? m.data.length : m.count)} 条${m.extra ? ' · 含分组结构' : ''}</div>
                         </div>
                         <div class="io-toggle" data-id="${m.id}"><div class="knob"></div></div>
                         <input type="checkbox" id="${m.id}" checked style="display:none;">
@@ -1971,6 +2184,17 @@ function initReplyLibraryListeners() {
             _searchVisible = false;
             _searchQuery = '';
             _activeGroupFilter = null;
+            // 确保公告面板隐藏、列表区域显示
+            const annPanel = document.getElementById('announcement-panel');
+            const listArea = document.getElementById('custom-replies-list');
+            const subTabs  = document.getElementById('cr-sub-tabs');
+            const addBtn2  = document.getElementById('add-custom-reply');
+            const batchTb  = document.getElementById('batch-ops-toolbar');
+            if (annPanel)  annPanel.style.display = 'none';
+            if (listArea)  listArea.style.display = '';
+            if (subTabs)   subTabs.style.display = '';
+            if (addBtn2)   addBtn2.style.display = '';
+            if (batchTb)   batchTb.style.display = '';
             document.querySelectorAll('.sidebar-btn').forEach(b => {
                 b.classList.toggle('active', b.dataset.major === 'reply');
             });
@@ -1985,7 +2209,12 @@ function initReplyLibraryListeners() {
             btn.classList.add('active');
             currentMajorTab = btn.dataset.major;
 
-            if (currentMajorTab === 'announcement') return;
+            if (currentMajorTab === 'announcement') {
+                const toolbar = document.getElementById('batch-ops-toolbar');
+                if (toolbar) toolbar.style.display = 'none';
+                if (typeof window.switchToAnnouncementPanel === 'function') window.switchToAnnouncementPanel();
+                return;
+            }
 
             const listArea = document.getElementById('custom-replies-list');
             const annPanel = document.getElementById('announcement-panel');

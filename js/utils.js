@@ -415,7 +415,7 @@ async function importAllData(file) {
             {
                 id: 'replies',
                 label: '回复 / 拍一拍 / 氛围',
-                indexedDBNeedles: ['customReplies', 'customPokes', 'customStatuses', 'customMottos', 'customIntros', 'customEmojis', 'customReplyGroups'],
+                indexedDBNeedles: ['customReplies', 'customPokes', 'customStatuses', 'customMottos', 'customIntros', 'customEmojis', 'customReplyGroups', 'customPokeGroups', 'customStatusGroups'],
                 localStorageNeedles: ['disabledReplyItems', 'pokeSym_my', 'pokeSym_partner', 'pokeSym_my_custom', 'pokeSym_partner_custom']
             },
             {
@@ -445,8 +445,8 @@ async function importAllData(file) {
             {
                 id: 'dg',
                 label: '每日公告 / 运势 / 天气',
-                indexedDBNeedles: ['dg_custom_data', 'dg_status_pool', 'weekly_fortune', 'daily_fortune'],
-                localStorageNeedles: [],
+                indexedDBNeedles: [],
+                localStorageNeedles: ['dg_custom_data', 'dg_status_pool', 'weekly_fortune', 'daily_fortune'],
                 localStoragePrefixes: ['customWeather_']
             }
         ];
